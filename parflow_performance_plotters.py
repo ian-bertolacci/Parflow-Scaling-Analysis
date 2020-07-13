@@ -1,17 +1,36 @@
-import os, itertools, collections, re, json, csv, math, scipy, scipy, scipy.stats, plotly, fileinput, random, copy
-import numpy as np
-import pandas as pd
-import sympy as sp
+# Types
+import collections, enum
 
+# Iterables
+import itertools
+
+# Data and analysis
+import pandas as pd
+
+# Parsing
+import re, json, csv, fileinput
+
+# Mathematical and Numerical
+import math
+from numpy import nan, inf
+
+# Debug
+from pprint import pprint
+
+# Other
+import os,random, copy
+
+# Plotting
+import plotly
 import plotly.graph_objects as go
 import plotly.express as px
 import plotly.io as pio
 
-from numpy import nan, inf
-from pprint import pprint
-
+# My analysis framework
 from analysis.utils import *
 from analysis.parflow_performance_readers import *
+
+
 
 class ParflowScalingExperimentPlotter:
   default_metric_key = "Total Runtime Time (s)"
@@ -79,7 +98,7 @@ class ParflowScalingExperimentPlotter:
     return minimum_line_plot
 
   def groups_ParflowScalingExperimentPlotter( self, aggregating_keys = ["PX", "PY", "PZ", "OMP_NUM_THREADS"], marker_factory=None ):
-    for experiment in self.experiment.group_into_ParflowScalingExperimentes( aggregating_keys ):
+    for experiment in self.experiment.split_into_group_by_grouped_key_value( aggregating_keys ):
       if marker_factory == None:
         color = self.color
         symbol = self.symbol
@@ -87,11 +106,10 @@ class ParflowScalingExperimentPlotter:
         marker = marker_factory.take()
         color = marker[0]
         symbol = marker[1]
-
       yield ParflowScalingExperimentPlotter( experiment, color, symbol, self.metric_key, self.metric_units, self.metric_transformation_fn, self.min_parallel_units, self.max_parallel_units )
 
   def group_into_DataGroupPlotter( self, aggregating_keys = ["PX", "PY", "PZ", "OMP_NUM_THREADS"], marker_factory=None ):
-    data_group = self.experiment.group_into_DataGroup( aggregating_keys )
+    data_group = self.experiment.split_into_group_by_grouped_key_value( aggregating_keys )
     if marker_factory == None:
       marker_factory = RotatingFactory( [(self.color, self.symbol)] )
     data_group_plotter = DataGroupPlotter(
@@ -148,17 +166,46 @@ class ParflowScalingExperimentPlotter:
 
 
 class DataGroupPlotter:
+  @enum.unique
+  class SpecialFlags(enum.Enum):
+    aggregate_all_groups = enum.auto()
+    aggregate_default_keys = enum.auto()
+
+  default_aggregate_keys = ["PX","PY", "PZ"]
+
   def __init__(self, data_group, marker_factory, metric_key = ParflowScalingExperimentPlotter.default_metric_key, metric_name = None, metric_units = ParflowScalingExperimentPlotter.default_metric_units, metric_transformation_fn = ParflowScalingExperimentPlotter.default_metric_transformation_fn, min_parallel_units = ParflowScalingExperimentPlotter.default_min_parallel_units, max_parallel_units = ParflowScalingExperimentPlotter.default_max_parallel_units, aggregated_groups = [], aggregating_keys = [] ):
     self.data_group = data_group
-    self.marker_factory = copy.deepcopy(marker_factory)
+    self.marker_factory = marker_factory
     self.metric_key = metric_key
     self.metric_name = metric_name if metric_name != None else self.metric_key
     self.metric_units = metric_units
     self.metric_transformation_fn = metric_transformation_fn
     self.min_parallel_units = min_parallel_units
     self.max_parallel_units = max_parallel_units
+
+    # Not sure that ensuring no repeats is necessary
     self.aggregated_groups = aggregated_groups
-    self.aggregating_keys = aggregating_keys
+    if    aggregated_groups == DataGroupPlotter.SpecialFlags.aggregate_all_groups \
+       or DataGroupPlotter.SpecialFlags.aggregate_all_groups in aggregated_groups:
+      self.aggregated_groups = set( ( e.name for e in self.data_group ) )
+    else:
+      self.aggregated_groups = set( aggregated_groups )
+    self.aggregated_groups = list( self.aggregated_groups )
+
+    # Add aggregating_keys, taking care of special flags, ensuring no repeats, maintaining order
+    self.aggregating_keys = []
+    if aggregating_keys == DataGroupPlotter.SpecialFlags.aggregate_default_keys:
+      self.aggregating_keys.extend( DataGroupPlotter.default_aggregate_keys )
+    else:
+      seen_keys = set()
+      for k in aggregating_keys:
+        if k not in seen_keys:
+          if k == DataGroupPlotter.SpecialFlags.aggregate_all_groups:
+            self.aggregating_keys.extend( DataGroupPlotter.default_aggregate_keys )
+            seen_keys |= set( DataGroupPlotter.default_aggregate_keys )
+          else:
+            self.aggregating_keys.append( k )
+          seen_keys.add( k )
 
     self.previously_used_markers = {
       key : self.marker_factory.take()
@@ -245,7 +292,7 @@ class DataGroupPlotter:
     plots = []
     for plotter in self.plotters:
       if plotter.experiment.name in aggregated_groups:
-        value = grouped_function(plotter)( *args, **kwargs, aggregating_keys=aggregating_keys, marker_factory=self.marker_factory.clone() )
+        value = grouped_function(plotter)( *args, **kwargs, aggregating_keys=aggregating_keys, marker_factory=self.marker_factory )
       else:
         value = normal_function(plotter)( *args, **kwargs )
 

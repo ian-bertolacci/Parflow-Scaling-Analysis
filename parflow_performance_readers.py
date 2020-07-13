@@ -1,13 +1,28 @@
-import os, itertools, collections, re, json, csv, math, scipy, scipy, scipy.stats, plotly, fileinput, random, copy
-import numpy as np
-import pandas as pd
-import sympy as sp
-from pprint import pprint, pformat
+# Types
+import collections, enum
 
-global debug_indent, debug_str, debug_print
-debug_indent = 0
-debug_str = "--"
-debug_print = False
+# Iterables
+import itertools
+
+# Data and analysis
+import pandas as pd
+
+# Parsing
+import re, json, csv, fileinput
+
+# Mathematical and Numerical
+import math
+from numpy import nan, inf
+
+# Debug
+from pprint import pprint
+
+# Other
+import os,random, copy
+
+# My analysis framework
+from analysis.utils import *
+from analysis.parflow_performance_readers import *
 
 
 from analysis.utils import *
@@ -241,7 +256,7 @@ class ParflowScalingExperiment:
       if not isinstance(group, tuple):
         group = (group,)
       new_experiment = self.clone_with_other_data( group_data )
-      update_fn( new_experiment )
+      update_fn( new_experiment, group )
       experiments.append( new_experiment )
     return experiments
 
@@ -300,7 +315,7 @@ class ParflowScalingExperiment:
 
   def create_mock(self):
     mock_ParflowScalingExperiment = collections.namedtuple( "mock_ParflowScalingExperiment", ["name", "parallelism", "domain", "system", "parflow_simple_name", "parflow_long_version"] )
-    return mock_ParflowScalingExperiment( *(getattr(self,attr) for attr in mock_ParflowScalingExperiment._fields) )
+    return mock_ParflowScalingExperiment( **{ attr : getattr(self,attr) for attr in mock_ParflowScalingExperiment._fields } )
 
   def __str__(self):
     if self.name == ParflowScalingExperiment.auto_name( self ):
@@ -345,10 +360,6 @@ class DataGroup:
   # group_fn: ParflowScalingExperiment -> hashable
   # name_fn: DataGroup, mock_ParflowScalingExperiment, list_of_experiments_in_group -> str
   def split_into_groups_by_function(self, group_fn, name_fn = None ):
-    global debug_indent
-    debug_indent += 1
-    if debug_print:
-      print( debug_str*debug_indent +  "DataGroup.split_into_groups_by_function" )
     if name_fn == None:
       name_fn = lambda self, mock, key, group_experiments: f"{self.name} ({key})"
 
@@ -364,84 +375,40 @@ class DataGroup:
     for key in group_dict.keys():
       group_experiments = group_dict[key]
       group_dict[key] = DataGroup( name_fn(self, group_mock[key], key, group_experiments), group_experiments )
-      if debug_print:
-        print( debug_str*debug_indent +  f"{key}: {group_dict[key]}" )
 
-    return_value = DataGroupList( group_dict.values() )
-    debug_indent -= 1
-    return return_value
+    return DataGroupList( group_dict.values() )
 
   def split_into_groups_by_parallelism(self, name_fn = None):
-    global debug_indent
-    debug_indent += 1
-    if debug_print:
-      print( debug_str*debug_indent +  "DataGroup.split_into_groups_by_parallelism" )
-    return_value = self.split_into_groups_by_function( lambda e: e.parallelism, name_fn )
-    debug_indent -= 1
-    return return_value
+    return self.split_into_groups_by_function( lambda e: e.parallelism, name_fn )
 
   def split_into_groups_by_domain(self, name_fn = None):
-    global debug_indent
-    debug_indent += 1
-    if debug_print:
-      print( debug_str*debug_indent +  "DataGroup.split_into_groups_by_domain" )
-    return_value = self.split_into_groups_by_function( lambda e: e.domain, name_fn )
-    debug_indent -= 1
-    return return_value
+    return self.split_into_groups_by_function( lambda e: e.domain, name_fn )
 
   def split_into_groups_by_system(self, name_fn = None):
-    global debug_indent
-    debug_indent += 1
-    if debug_print:
-      print( debug_str*debug_indent +  "DataGroup.split_into_groups_by_system" )
-    return_value = self.split_into_groups_by_function( lambda e: e.system, name_fn )
-    debug_indent -= 1
-    return return_value
+    return self.split_into_groups_by_function( lambda e: e.system, name_fn )
 
   def split_into_groups_by_parflow_simple_name(self, name_fn = None):
-    global debug_indent
-    debug_indent += 1
-    if debug_print:
-      print( debug_str*debug_indent +  "DataGroup.split_into_groups_by_parflow_simple_name" )
-    return_value = self.split_into_groups_by_function( lambda e: e.parflow_simple_name, name_fn )
-    debug_indent -= 1
-    return return_value
+    return self.split_into_groups_by_function( lambda e: e.parflow_simple_name, name_fn )
 
   def split_into_groups_by_parflow_long_version(self, name_fn = None):
-    global debug_indent
-    debug_indent += 1
-    if debug_print:
-      print( debug_str*debug_indent +  "DataGroup.split_into_groups_by_parflow_long_version" )
-    return_value = self.split_into_groups_by_function( lambda e: e.parflow_long_version, name_fn )
-    debug_indent -= 1
-    return return_value
+    return self.split_into_groups_by_function( lambda e: e.parflow_long_version, name_fn )
 
   def split_into_groups_by_name(self, name_fn = None):
-    global debug_indent
-    debug_indent += 1
-    if debug_print:
-      print( debug_str*debug_indent +  "DataGroup.split_into_groups_by_name" )
-    return_value = self.split_into_groups_by_function( lambda e: e.name, name_fn )
-    debug_indent -= 1
-    return return_value
+    return self.split_into_groups_by_function( lambda e: e.name, name_fn )
 
   def apply_update(self, fn, inplace=False, modifying_fn=True, clone=True, new_name=None):
-    global debug_indent
-    debug_indent += 1
-    if debug_print:
-      print( debug_str*debug_indent +  "DataGroup.apply_update" )
     if new_name == None:
       new_name = self.name
 
     def wrapped_fn( experiment ):
       if clone:
         experiment = experiment.clone()
-
       if modifying_fn:
         fn( experiment )
-        return experiment
+        return_value = experiment
       else:
-        return fn( experiment )
+        return_value = fn( experiment )
+      return return_value
 
     experiments = [ wrapped_fn( e ) for e in self.experiments ]
 
@@ -452,17 +419,10 @@ class DataGroup:
     else:
       data_group = DataGroup( new_name, experiments )
       return_value = data_group
-    debug_indent -= 1
     return return_value
 
   def apply_update_inplace(self, fn, modifying_fn=True, clone=False, new_name=None):
-    global debug_indent
-    debug_indent += 1
-    if debug_print:
-      print( debug_str*debug_indent +  "DataGroup.apply_update_inplace" )
-    return_value = self.apply_update(fn, inplace=True, modifying_fn=modifying_fn, clone=clone, new_name=new_name)
-    debug_indent -= 1
-    return return_value
+    return self.apply_update(fn, inplace=True, modifying_fn=modifying_fn, clone=clone, new_name=new_name)
 
   # fn: ParflowScalingExperiment -> value (should not modify input)
   def map(self, fn):
@@ -499,11 +459,12 @@ class DataGroup:
       classes.append( data_class )
 
     if len(classes) == 0:
-      return None
+      return_value = None
     elif len(classes) == 1:
-      return classes[0]
+      return_value = classes[0]
     else:
-      return classes
+      return_value = classes
+    return return_value
 
   def __str__(self):
     ordered_keys = [ "parallelism", "domain", "system", "parflow_simple_name", "parflow_long_version", "name" ]
@@ -544,114 +505,44 @@ class DataGroup:
   def join(self, name, *others):
     return DataGroup.join_these(name, self, *others)
 
-    def __iter__(self):
-      return iter(self.experiments)
+  def __iter__(self):
+    return iter(self.experiments)
 
 
 class DataGroupList:
   def __init__(self, groups):
-    global debug_indent
-    debug_indent += 1
-    if debug_print:
-      print( debug_str*debug_indent + "DataGroupList.init")
     self.groups = list( recursive_unpack(groups, do_not_unpack_when_true=lambda x: isinstance(x,DataGroup)) )
-    for g in self.groups:
-      if debug_print:
-        print( debug_str*(debug_indent+1) + g.name )
-    debug_indent -= 1
 
   def apply_function_to_groups(self, function, *args, **kwargs):
-    global debug_indent
-    debug_indent += 1
-    if debug_print:
-      print( debug_str*debug_indent +  "DataGroupList.apply_function_to_groups ")
     l = list( ( function(g, *args, **kwargs ) for g in self.groups ) )
-    if debug_print:
-      print( debug_str*(debug_indent+1) + pformat( [ type(e) for e in l] ) )
-    return_value = DataGroupList( l )
-    debug_indent -= 1
-    return return_value
+    return DataGroupList( l )
 
   def split_into_groups_by_function(self, *args, **kwargs ):
-    global debug_indent
-    debug_indent += 1
-    if debug_print:
-      print( debug_str*debug_indent +  "DataGroupList.split_into_groups_by_function" )
-    return_value = self.apply_function_to_groups( DataGroup.split_into_groups_by_function, *args, **kwarg)
-    debug_indent -= 1
-    return return_value
+    return self.apply_function_to_groups( DataGroup.split_into_groups_by_function, *args, **kwarg)
 
   def split_into_groups_by_parallelism(self, *args, **kwargs):
-    global debug_indent
-    debug_indent += 1
-    if debug_print:
-      print( debug_str*debug_indent +  "DataGroupList.split_into_groups_by_parallelism" )
-    return_value = self.apply_function_to_groups( DataGroup.split_into_groups_by_parallelism, *args, **kwargs )
-    debug_indent -= 1
-    return return_value
+    return self.apply_function_to_groups( DataGroup.split_into_groups_by_parallelism, *args, **kwargs )
 
   def split_into_groups_by_domain(self, *args, **kwargs ):
-    global debug_indent
-    debug_indent += 1
-    if debug_print:
-      print( debug_str*debug_indent +  "DataGroupList.split_into_groups_by_domain" )
-    return_value = self.apply_function_to_groups( DataGroup.split_into_groups_by_domain, *args, **kwargs )
-    debug_indent -= 1
-    return return_value
+    return self.apply_function_to_groups( DataGroup.split_into_groups_by_domain, *args, **kwargs )
 
   def split_into_groups_by_system(self, *args, **kwargs ):
-    global debug_indent
-    debug_indent += 1
-    if debug_print:
-      print( debug_str*debug_indent +  "DataGroupList.split_into_groups_by_system" )
-    return_value = self.apply_function_to_groups( DataGroup.split_into_groups_by_system, *args, **kwargs )
-    debug_indent -= 1
-    return return_value
+    return self.apply_function_to_groups( DataGroup.split_into_groups_by_system, *args, **kwargs )
 
   def split_into_groups_by_parflow_simple_name(self, *args, **kwargs ):
-    global debug_indent
-    debug_indent += 1
-    if debug_print:
-      print( debug_str*debug_indent +  "DataGroupList.split_into_groups_by_parflow_simple_name" )
-    return_value = self.apply_function_to_groups( DataGroup.split_into_groups_by_parflow_simple_name, *args, **kwargs )
-    debug_indent -= 1
-    return return_value
+    return self.apply_function_to_groups( DataGroup.split_into_groups_by_parflow_simple_name, *args, **kwargs )
 
   def split_into_groups_by_parflow_long_version(self, *args, **kwargs ):
-    global debug_indent
-    debug_indent += 1
-    if debug_print:
-      print( debug_str*debug_indent +  "DataGroupList.split_into_groups_by_parflow_long_version" )
-    return_value = self.apply_function_to_groups( DataGroup.split_into_groups_by_parflow_long_version, *args, **kwargs )
-    debug_indent -= 1
-    return return_value
+    return self.apply_function_to_groups( DataGroup.split_into_groups_by_parflow_long_version, *args, **kwargs )
 
   def split_into_groups_by_name(self, *args, **kwargs ):
-    global debug_indent
-    debug_indent += 1
-    if debug_print:
-      print( debug_str*debug_indent +  "DataGroupList.split_into_groups_by_name" )
-    return_value = self.apply_function_to_groups( DataGroup.split_into_groups_by_name, *args, **kwargs )
-    debug_indent -= 1
-    return return_value
+    return self.apply_function_to_groups( DataGroup.split_into_groups_by_name, *args, **kwargs )
 
   def apply_update(self, *args, **kwargs ):
-    global debug_indent
-    debug_indent += 1
-    if debug_print:
-      print( debug_str*debug_indent +  "DataGroupList.apply_update" )
-    return_value = self.apply_function_to_groups( DataGroup.apply_update, *args, **kwargs )
-    debug_indent -= 1
-    return return_value
+    return self.apply_function_to_groups( DataGroup.apply_update, *args, **kwargs )
 
   def apply_update_inplace(self, *args, **kwargs):
-    global debug_indent
-    debug_indent += 1
-    if debug_print:
-      print( debug_str*debug_indent +  "DataGroupList.apply_update_inplace" )
-    return_value = self.apply_function_to_groups( DataGroup.apply_update_inplace, *args, **kwargs )
-    debug_indent -= 1
-    return return_value
+    return self.apply_function_to_groups( DataGroup.apply_update_inplace, *args, **kwargs )
 
   def apply_group_update(self, fn, modifying_fn=True, clone=False):
     def wrapped_fn( group ):
@@ -660,9 +551,10 @@ class DataGroupList:
 
       if modifying_fn:
         fn( group )
-        return group
+        return_value = group
       else:
-        return fn( group )
+        return_value = fn( group )
+      return return_value
 
   # fn: ParflowScalingExperiment -> value (should not modify input)
   def map(self, *args, **kwargs):
@@ -671,6 +563,16 @@ class DataGroupList:
   # fn: state, ParflowScalingExperiment -> state' (should not modify input)
   def reduce(self, fn, initial):
     return functools.reduce( fn, itertools.chain( *( g.experiments for g in self.groups ) ), initial )
+
+  def collect_key_values(self, *keys):
+    def reduce_fn( value, experiment ):
+      return value | get_actual_set( experiment.data, *keys )
+    return self.reduce( reduce_fn, set() )
+
+  def collect_attribute_values(self, *attributes):
+    def reduce_fn( value, experiment ):
+      return value | set( ( getattr(experiment, attr) for attr in attributes ) )
+    return self.reduce( reduce_fn, set() )
 
   def join_groups(self, name):
     return DataGroup.join_these_groups(name, *self.groups)

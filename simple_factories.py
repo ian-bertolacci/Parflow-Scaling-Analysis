@@ -51,7 +51,8 @@ class RotatingFactory:
     return value
 
   def take(self):
-    return self.all[ self.post_increment() ]
+    return_value = self.all[ self.post_increment() ]
+    return return_value
 
   def give(self, x, *additional):
     all_new_values = [x, *additional]
